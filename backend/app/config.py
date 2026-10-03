@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     ytdlp_cookies_from_browser: str = ""
 
     log_level: str = "INFO"
-    log_json: bool = True
+    log_json: bool = False
 
     # Seleção de cortes — provedor de LLM
     # Valores: ollama (local, padrão) | openai | anthropic | none (heurística local)

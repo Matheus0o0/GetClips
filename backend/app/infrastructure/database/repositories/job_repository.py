@@ -101,14 +101,11 @@ class SQLAlchemyJobRepository:
             m = await s.get(JobModel, job_id)
             return _model_to_entity(m) if m else None
 
-    async def list(self, limit: int = 100, offset: int = 0) -> list[Job]:
+    async def list(self, limit: int = 100, offset: int = 0, status: str | None = None) -> list[Job]:
         async with self._sm() as s:
-            stmt = (
-                select(JobModel)
-                .order_by(JobModel.created_at.desc())
-                .limit(limit)
-                .offset(offset)
-            )
+            stmt = select(JobModel).order_by(JobModel.created_at.desc()).limit(limit).offset(offset)
+            if status:
+                stmt = stmt.where(JobModel.status == status.upper())
             res = await s.execute(stmt)
             return [_model_to_entity(m) for m in res.scalars()]
 

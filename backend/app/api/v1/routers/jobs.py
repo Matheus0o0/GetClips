@@ -43,9 +43,10 @@ async def create_job(
 async def list_jobs(
     limit: int = 100,
     offset: int = 0,
+    status: str | None = None,
     uc: ListJobsUseCase = Depends(list_jobs_uc),
 ) -> list[JobDTO]:
-    jobs = await uc.execute(limit=limit, offset=offset)
+    jobs = await uc.execute(limit=limit, offset=offset, status=status)
     return [JobDTO.from_entity(j) for j in jobs]
 
 

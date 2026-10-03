@@ -9,5 +9,5 @@ class ListJobsUseCase:
     def __init__(self, repo: IJobRepository) -> None:
         self._repo = repo
 
-    async def execute(self, limit: int = 100, offset: int = 0) -> list[Job]:
-        return await self._repo.list(limit=limit, offset=offset)
+    async def execute(self, limit: int = 100, offset: int = 0, status: str | None = None) -> list[Job]:
+        return await self._repo.list(limit=limit, offset=offset, status=status)

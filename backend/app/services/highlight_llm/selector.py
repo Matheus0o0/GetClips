@@ -54,11 +54,13 @@ def _extract_json_array(text: str) -> list[dict]:
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
-        # tenta pescar o primeiro array ou objeto
         match = re.search(r"\[.*\]", text, re.DOTALL) or re.search(r"\{.*\}", text, re.DOTALL)
         if not match:
             raise HighlightSelectionError(f"LLM não devolveu JSON: {exc}") from exc
-        data = json.loads(match.group(0))
+        try:
+            data = json.loads(match.group(0))
+        except json.JSONDecodeError as exc2:
+            raise HighlightSelectionError(f"LLM devolveu JSON inválido: {exc2}") from exc2
     # aceita {"clips": [...]} ou diretamente [...]
     if isinstance(data, dict):
         for key in ("clips", "cortes", "results", "highlights"):
