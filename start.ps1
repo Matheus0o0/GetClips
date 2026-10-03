@@ -1,62 +1,82 @@
-# TranscreverVideoYt — launcher
-param([switch]$NoBrowser)
+Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 
-$root = $PSScriptRoot
+$ROOT = $PSScriptRoot
 
-$venv  = "$root\backend\.venv\Scripts\activate.bat"
-$nmods = "$root\frontend\node_modules"
-
-if (-not (Test-Path $venv)) {
-    Write-Host "ERRO: venv nao encontrado. Execute scripts\install.ps1 primeiro." -ForegroundColor Red
-    Read-Host "Pressione Enter para sair"
-    exit 1
-}
-if (-not (Test-Path $nmods)) {
-    Write-Host "ERRO: node_modules nao encontrado. Execute scripts\install.ps1 primeiro." -ForegroundColor Red
-    Read-Host "Pressione Enter para sair"
-    exit 1
+function Kill-Porta([int]$porta) {
+    netstat -ano | Select-String ":$porta\s" | ForEach-Object {
+        $pid_ = ($_ -split '\s+')[-1]
+        if ($pid_ -match '^\d+$') {
+            Stop-Process -Id ([int]$pid_) -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
-# Escreve batches temporarios para evitar problemas de quoting com espacos no path
-$tmpBack  = "$env:TEMP\neo_backend.bat"
-$tmpFront = "$env:TEMP\neo_frontend.bat"
-
-@"
-@echo off
-title Backend - TranscreverVideoYt
-cd /d "$root\backend"
-call ".venv\Scripts\activate.bat"
-uvicorn app.main:app --reload --port 8000 --host 127.0.0.1
-pause
-"@ | Set-Content -LiteralPath $tmpBack -Encoding ascii
-
-@"
-@echo off
-title Frontend - TranscreverVideoYt
-cd /d "$root\frontend"
-npm run dev
-pause
-"@ | Set-Content -LiteralPath $tmpFront -Encoding ascii
-
-Write-Host "Iniciando backend  (http://127.0.0.1:8000) ..." -ForegroundColor Cyan
-$backendProc = Start-Process cmd -ArgumentList "/k `"$tmpBack`"" -PassThru
-
-Start-Sleep -Milliseconds 300
-
-Write-Host "Iniciando frontend (http://localhost:3000) ..." -ForegroundColor Cyan
-$frontendProc = Start-Process cmd -ArgumentList "/k `"$tmpFront`"" -PassThru
-
-if (-not $NoBrowser) {
-    Write-Host "Aguardando servicos (5s) ..." -ForegroundColor Yellow
-    Start-Sleep -Seconds 5
-    Start-Process "http://localhost:3000"
+# Mata instâncias anteriores
+Kill-Porta 8000
+Kill-Porta 3000
+if (Test-Path "$ROOT\.pids") {
+    Get-Content "$ROOT\.pids" | ForEach-Object {
+        $_ -split ',' | ForEach-Object {
+            if ($_ -match '^\d+$') { Stop-Process -Id ([int]$_) -Force -ErrorAction SilentlyContinue }
+        }
+    }
 }
 
-"$($backendProc.Id),$($frontendProc.Id)" | Set-Content "$root\.pids" -Encoding utf8
+# Ícone: círculo verde 32x32
+$bmp = [System.Drawing.Bitmap]::new(32, 32)
+$g   = [System.Drawing.Graphics]::FromImage($bmp)
+$g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+$g.FillRectangle([System.Drawing.Brushes]::Black, 0, 0, 32, 32)
+$g.FillEllipse([System.Drawing.Brushes]::LimeGreen, 3, 3, 26, 26)
+$g.Dispose()
 
-Write-Host ""
-Write-Host "App rodando!" -ForegroundColor Green
-Write-Host "  UI:  http://localhost:3000" -ForegroundColor White
-Write-Host "  API: http://127.0.0.1:8000/docs" -ForegroundColor White
-Write-Host ""
-Write-Host "Para parar: scripts\stop.ps1" -ForegroundColor Gray
+$notify = [System.Windows.Forms.NotifyIcon]::new()
+$notify.Icon    = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+$notify.Text    = 'TranscreverVideo'
+$notify.Visible = $true
+
+function Abrir-Browser { Start-Process 'http://localhost:3000' }
+
+function Parar-Tudo {
+    Kill-Porta 8000
+    Kill-Porta 3000
+    Stop-Process -Name 'ollama' -Force -ErrorAction SilentlyContinue
+    Remove-Item "$ROOT\.pids" -ErrorAction SilentlyContinue
+    $notify.Visible = $false
+    $bmp.Dispose()
+    [System.Windows.Forms.Application]::Exit()
+}
+
+$menu = [System.Windows.Forms.ContextMenuStrip]::new()
+[void]$menu.Items.Add('Abrir no browser',  $null, { Abrir-Browser })
+[void]$menu.Items.Add([System.Windows.Forms.ToolStripSeparator]::new())
+[void]$menu.Items.Add('Parar tudo',        $null, { Parar-Tudo })
+$notify.ContextMenuStrip = $menu
+$notify.add_MouseDoubleClick({
+    if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Left) { Abrir-Browser }
+})
+
+# Inicia serviços em background (sem terminais)
+$r = $ROOT
+$bgScript = {
+    param($r)
+    Start-Process 'ollama' 'serve' -WindowStyle Hidden -ErrorAction SilentlyContinue
+    Start-Sleep 2
+    $b = Start-Process "$r\backend\.venv\Scripts\python.exe" `
+        '-m uvicorn app.main:app --port 8000 --host 127.0.0.1 --loop asyncio' `
+        -WorkingDirectory "$r\backend" -PassThru -WindowStyle Hidden
+    Start-Sleep 4
+    $f = Start-Process 'cmd' '/c npm run dev' `
+        -WorkingDirectory "$r\frontend" -PassThru -WindowStyle Hidden
+    "$($b.Id),$($f.Id)" | Set-Content "$r\.pids" -Encoding utf8
+    Start-Sleep 5
+    Start-Process 'http://localhost:3000'
+}
+
+$ps = [powershell]::Create()
+[void]$ps.AddScript($bgScript).AddParameter('r', $r)
+[void]$ps.BeginInvoke()
+
+$notify.ShowBalloonTip(4000, 'TranscreverVideo', 'Iniciando... aguarde ~10s', [System.Windows.Forms.ToolTipIcon]::Info)
+
+[System.Windows.Forms.Application]::Run()

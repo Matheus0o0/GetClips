@@ -20,31 +20,39 @@ from app.core.interfaces.highlight_selector import HighlightCandidate, Highlight
 logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = """\
-Você é um editor de vídeo. Analise a transcrição e escolha os melhores trechos para Reels/Shorts.
+You are a video editor. Select the best highlight clips from the transcript for Reels/Shorts.
 
-Responda SOMENTE com JSON válido neste formato exato:
-{"clips": [{"inicio": 12.5, "fim": 48.0, "hook": "frase de abertura do trecho", "score": 0.9, "motivo": "por que é bom"}, {"inicio": 95.0, "fim": 130.0, "hook": "outra frase", "score": 0.7, "motivo": "motivo"}]}
+IMPORTANT: Each clip must span MULTIPLE consecutive segments covering 30-60 seconds total.
+Do NOT return individual segments — group them into longer clips.
 
-Regras:
-- inicio e fim são números em segundos (float)
-- hook é a primeira frase do trecho (string)
-- score é de 0.0 a 1.0 (float)
-- motivo é uma frase curta (string)
-- Sem markdown, sem texto fora do JSON\
+Reply ONLY with valid JSON, no markdown, no extra text:
+{"clips": [{"inicio": 45.0, "fim": 90.0, "hook": "opening phrase of the clip", "score": 0.9, "motivo": "why it is good"}, {"inicio": 310.0, "fim": 365.0, "hook": "another phrase", "score": 0.7, "motivo": "reason"}]}
+
+Rules:
+- inicio and fim are seconds (float), fim - inicio must be between 30 and 90 seconds
+- hook is the first sentence spoken in the clip (string)
+- score is 0.0 to 1.0 (float)
+- motivo is a short reason (string)\
 """
+
+# ponytail: amostra no máximo 120 segmentos distribuídos ao longo do vídeo —
+# llama3.2 tem contexto de ~4k tokens; vídeos longos estouram e o modelo só regurgita
+_MAX_SEGMENTS = 120
 
 
 def _build_user_prompt(transcription: Transcription, params: HighlightParams) -> str:
-    lines: list[str] = []
-    for s in transcription.segments:
-        lines.append(f"[{s.start_ms/1000:.1f}-{s.end_ms/1000:.1f}] {s.text.strip()}")
+    segs = transcription.segments
+    if len(segs) > _MAX_SEGMENTS:
+        step = len(segs) / _MAX_SEGMENTS
+        segs = [segs[int(i * step)] for i in range(_MAX_SEGMENTS)]
+
+    lines = [f"[{s.start_ms/1000:.1f}-{s.end_ms/1000:.1f}] {s.text.strip()}" for s in segs]
     body = "\n".join(lines)
     return (
-        f"Duração total do vídeo: {transcription.duration_seconds:.1f}s\n"
-        f"Quero até {params.max_clips} cortes, cada um com duração entre "
-        f"{params.duration_min}s e {params.duration_max}s.\n\n"
-        f"Transcrição:\n{body}\n\n"
-        'Devolva o JSON: {"clips": [...]}'
+        f"Video duration: {transcription.duration_seconds:.1f}s\n"
+        f"Select up to {params.max_clips} clips, each {params.duration_min}-{params.duration_max}s long.\n\n"
+        f"Transcript (sampled):\n{body}\n\n"
+        'Return JSON: {"clips": [{"inicio": ..., "fim": ..., "hook": "...", "score": 0.9, "motivo": "..."}]}'
     )
 
 
@@ -80,11 +88,16 @@ def _validate_candidates(
     out: list[HighlightCandidate] = []
     for item in raw:
         try:
-            inicio = float(item["inicio"])
-            fim = float(item["fim"])
-            hook = str(item.get("hook", "")).strip()
-            score = float(item.get("score", 0.0))
-            motivo = str(item.get("motivo", "")).strip()
+            # aceita variações de chave que modelos diferentes costumam usar
+            raw_i = next((item[k] for k in ("inicio", "start_time", "start", "begin") if k in item), None)
+            raw_f = next((item[k] for k in ("fim", "end_time", "end", "stop") if k in item), None)
+            if raw_i is None or raw_f is None:
+                raise KeyError("inicio/fim ausente")
+            inicio = float(raw_i)
+            fim = float(raw_f)
+            hook = str(item.get("hook", item.get("text", ""))).strip()
+            score = float(item.get("score", 0.5))
+            motivo = str(item.get("motivo", item.get("reason", ""))).strip()
         except (KeyError, TypeError, ValueError):
             logger.warning("candidato inválido descartado: %s", item)
             continue
@@ -102,6 +115,27 @@ def _validate_candidates(
     return out[: params.max_clips]
 
 
+def _heuristic_clips(transcription: Transcription, params: HighlightParams) -> list[HighlightCandidate]:
+    # ponytail: divide o vídeo em N clips igualmente espaçados — substitui LLM quando modelo é fraco
+    dur = transcription.duration_seconds
+    clip_len = (params.duration_min + params.duration_max) / 2
+    n = min(params.max_clips, max(1, int(dur / clip_len)))
+    step = dur / n
+    clips = []
+    for i in range(n):
+        inicio = round(i * step, 1)
+        fim = round(min(inicio + clip_len, dur), 1)
+        if fim - inicio < params.duration_min:
+            continue
+        # pega o texto do primeiro segmento dentro do clip como hook
+        hook = next(
+            (s.text.strip() for s in transcription.segments if s.start_ms / 1000 >= inicio),
+            "",
+        )
+        clips.append(HighlightCandidate(inicio=inicio, fim=fim, hook=hook, score=0.5, motivo="heurística"))
+    return clips
+
+
 class LLMHighlightSelector:
     """Adaptador para IHighlightSelector. Provedor definido no Settings."""
 
@@ -114,19 +148,30 @@ class LLMHighlightSelector:
         params: HighlightParams,
     ) -> list[HighlightCandidate]:
         provider = self._s.highlight_provider.lower()
-        if provider == "ollama":
-            raw_text = await self._call_ollama(transcription, params)
-        elif provider == "openai":
-            raw_text = await self._call_openai(transcription, params)
-        elif provider == "anthropic":
-            raw_text = await self._call_anthropic(transcription, params)
-        elif provider == "none":
-            return []
-        else:
+        if provider == "none":
+            return _heuristic_clips(transcription, params)
+        if provider not in {"ollama", "openai", "anthropic"}:
             raise LLMNotConfiguredError(f"Provedor desconhecido: {provider}")
 
-        raw = _extract_json_array(raw_text)
-        return _validate_candidates(raw, transcription.duration_seconds, params)
+        try:
+            if provider == "ollama":
+                raw_text = await self._call_ollama(transcription, params)
+            elif provider == "openai":
+                raw_text = await self._call_openai(transcription, params)
+            else:
+                raw_text = await self._call_anthropic(transcription, params)
+
+            logger.info("LLM raw response (primeiros 500 chars): %s", raw_text[:500])
+            raw = _extract_json_array(raw_text)
+            logger.info("candidatos parsed: %d", len(raw))
+            candidates = _validate_candidates(raw, transcription.duration_seconds, params)
+        except Exception as exc:
+            logger.warning("LLM falhou (%s) — usando heurística de espaçamento igual", exc)
+            candidates = []
+
+        if not candidates:
+            candidates = _heuristic_clips(transcription, params)
+        return candidates
 
     async def _call_ollama(self, tr: Transcription, params: HighlightParams) -> str:
         from app.ai.llm.ollama_provider import OllamaProvider
