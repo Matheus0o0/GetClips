@@ -58,6 +58,7 @@ class FasterWhisperTranscriber:
             lambda: model.transcribe(
                 str(audio_path),
                 language=language,
+                task="transcribe",
                 beam_size=params.beam_size,
                 temperature=params.temperature,
                 vad_filter=params.vad_filter,

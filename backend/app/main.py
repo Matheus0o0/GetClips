@@ -1,6 +1,21 @@
 """FastAPI entrypoint — inicializa DI, banco, worker pool e rotas."""
 from __future__ import annotations
 
+import os
+import site
+
+# Registra DLLs do CUDA instaladas via pip (nvidia-cublas-cu12, nvidia-cudnn-cu12).
+# ctranslate2 usa LoadLibrary() do C, que só busca no PATH — add_dll_directory sozinho não basta.
+_cuda_dirs = []
+for _sp in site.getsitepackages():
+    for _pkg in ("cublas", "cudnn", "cuda_nvrtc", "cuda_runtime"):
+        _dll_dir = os.path.join(_sp, "nvidia", _pkg, "bin")
+        if os.path.isdir(_dll_dir):
+            _cuda_dirs.append(_dll_dir)
+            os.add_dll_directory(_dll_dir)
+if _cuda_dirs:
+    os.environ["PATH"] = os.pathsep.join(_cuda_dirs) + os.pathsep + os.environ.get("PATH", "")
+
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 

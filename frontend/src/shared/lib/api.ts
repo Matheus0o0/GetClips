@@ -38,6 +38,9 @@ export const api = {
   cancelJob: (jobId: string) =>
     request<{ message: string }>(`/jobs/${jobId}`, { method: "DELETE" }),
 
+  deleteJob: (jobId: string) =>
+    fetch(`/api/v1/jobs/${jobId}`, { method: "DELETE" }).then(() => undefined),
+
   history: (limit = 200) => request<JobDTO[]>(`/history?limit=${limit}`),
 
   settings: () => request<SettingsDTO>("/settings"),

@@ -60,14 +60,18 @@ $notify.add_MouseDoubleClick({
 $r = $ROOT
 $bgScript = {
     param($r)
+    New-Item -ItemType Directory -Force "$r\storage\logs" | Out-Null
     Start-Process 'ollama' 'serve' -WindowStyle Hidden -ErrorAction SilentlyContinue
     Start-Sleep 2
     $b = Start-Process "$r\backend\.venv\Scripts\python.exe" `
         '-m uvicorn app.main:app --port 8000 --host 127.0.0.1 --loop asyncio' `
-        -WorkingDirectory "$r\backend" -PassThru -WindowStyle Hidden
+        -WorkingDirectory "$r\backend" -PassThru -NoNewWindow `
+        -RedirectStandardOutput "$r\storage\logs\uvicorn.log" `
+        -RedirectStandardError  "$r\storage\logs\uvicorn_err.log"
     Start-Sleep 4
-    $f = Start-Process 'cmd' '/c npm run dev' `
-        -WorkingDirectory "$r\frontend" -PassThru -WindowStyle Hidden
+    $f = Start-Process 'powershell.exe' `
+        "-NoProfile -NonInteractive -WindowStyle Hidden -Command `"Set-Location '$r\frontend'; npm run dev`"" `
+        -PassThru -WindowStyle Hidden
     "$($b.Id),$($f.Id)" | Set-Content "$r\.pids" -Encoding utf8
     Start-Sleep 5
     Start-Process 'http://localhost:3000'

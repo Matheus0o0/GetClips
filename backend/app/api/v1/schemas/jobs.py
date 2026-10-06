@@ -12,7 +12,7 @@ from app.core.value_objects import Language, ModelType
 
 
 class JobParamsDTO(BaseModel):
-    model: ModelType = ModelType.DISTIL_LARGE_V3
+    model: ModelType = ModelType.LARGE_V3
     language: Language = Language.AUTO
     beam_size: int = Field(5, ge=1, le=10)
     output_formats: list[str] = Field(default_factory=lambda: ["srt", "vtt", "txt", "md"])

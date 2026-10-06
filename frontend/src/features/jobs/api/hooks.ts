@@ -3,13 +3,17 @@ import { useNavigate } from "react-router-dom";
 import { api } from "@/shared/lib/api";
 import type { CreateJobPayload, RerunPayload } from "@/shared/types/job";
 
-export function useJobs() {
+const PAGE_SIZE = 20;
+
+export function useJobs(page = 0) {
   return useQuery({
-    queryKey: ["jobs"],
-    queryFn: () => api.listJobs(200, 0),
+    queryKey: ["jobs", page],
+    queryFn: () => api.listJobs(PAGE_SIZE, page * PAGE_SIZE),
     refetchInterval: (query) => (query.state.error ? false : 3000),
   });
 }
+
+export { PAGE_SIZE };
 
 export function useJob(jobId: string | undefined) {
   return useQuery({
@@ -37,6 +41,14 @@ export function useCancelJob() {
       qc.invalidateQueries({ queryKey: ["jobs"] });
       qc.invalidateQueries({ queryKey: ["job", jobId] });
     },
+  });
+}
+
+export function useDeleteJob() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (jobId: string) => api.deleteJob(jobId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["jobs"] }),
   });
 }
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.api.v1.dependencies import cancel_job_uc, create_job_uc, get_job_uc, list_jobs_uc
+from app.api.v1.dependencies import cancel_job_uc, create_job_uc, get_job_uc, get_repo, list_jobs_uc
 from app.api.v1.schemas.common import MessageResponse
 from app.api.v1.schemas.jobs import (
     CreateJobRequest,
@@ -20,6 +20,7 @@ from app.application.use_cases.get_job import GetJobUseCase
 from app.application.use_cases.list_jobs import ListJobsUseCase
 from app.core.entities.job import JobParams
 from app.core.exceptions import JobNotFoundError
+from app.core.interfaces.job_repository import IJobRepository
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -65,15 +66,18 @@ async def get_job(
     )
 
 
-@router.delete("/{job_id}", response_model=MessageResponse)
-async def cancel_job(
+@router.delete("/{job_id}", status_code=204)
+async def delete_job(
     job_id: str,
-    uc: CancelJobUseCase = Depends(cancel_job_uc),
-) -> MessageResponse:
-    ok = await uc.execute(job_id)
-    if not ok:
-        raise HTTPException(404, "Job não encontrado ou já finalizado")
-    return MessageResponse(message="Job cancelado")
+    cancel_uc: CancelJobUseCase = Depends(cancel_job_uc),
+    repo: IJobRepository = Depends(get_repo),
+) -> None:
+    job = await repo.get(job_id)
+    if job is None:
+        raise HTTPException(404, "Job não encontrado")
+    if job.status.value in {"RUNNING", "QUEUED"}:
+        await cancel_uc.execute(job_id)
+    await repo.delete(job_id)
 
 
 @router.get("/{job_id}/transcription", response_model=TranscriptionDTO)

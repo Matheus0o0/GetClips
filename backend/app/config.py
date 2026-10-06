@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     storage_root: Path = Path("../storage")
     database_url: str = "sqlite+aiosqlite:///../storage/local_transcriber.db"
 
-    default_model: str = "distil-large-v3"
+    default_model: str = "large-v3"
     default_language: str = "pt"
     device: str = "auto"            # auto | cuda | cpu
     compute_type: str = "auto"      # auto | float16 | int8_float16 | int8
