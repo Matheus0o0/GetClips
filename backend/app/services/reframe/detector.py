@@ -9,9 +9,9 @@ logger = logging.getLogger(__name__)
 
 _MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models"
-    "/face_detector/blaze_face_short_range/float16/latest/face_detector.task"
+    "/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite"
 )
-_MODEL_NAME = "face_detector.task"
+_MODEL_NAME = "blaze_face_short_range.tflite"
 
 
 def _ensure_model(models_dir: Path | None = None) -> Path:
