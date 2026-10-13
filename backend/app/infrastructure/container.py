@@ -31,7 +31,7 @@ from app.services.audio.ffmpeg_adapter import FFmpegAudioProcessor
 from app.services.downloader.local_file_adapter import LocalFileDownloader
 from app.services.downloader.ytdlp_adapter import YtDlpDownloader
 from app.services.highlight_llm import LLMHighlightSelector
-from app.services.reframe import OpenCVReframer
+from app.services.reframe.hyperframes_renderer import HyperFramesReframer
 from app.services.subtitle.generator import SubtitleGenerator
 from app.services.transcriber.faster_whisper_adapter import FasterWhisperTranscriber
 
@@ -53,7 +53,7 @@ class Container:
         self.transcriber = FasterWhisperTranscriber(settings)
         self.subtitle_generator = SubtitleGenerator()
         self.highlight_selector = LLMHighlightSelector(settings)
-        self.reframer = OpenCVReframer()
+        self.reframer = HyperFramesReframer(models_dir=settings.models_dir)
 
         # LLM local — Ollama quando configurado, NoOp caso contrário
         if settings.highlight_provider == "ollama":

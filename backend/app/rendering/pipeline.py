@@ -142,6 +142,7 @@ class TemplateRenderer:
                 template.tracking.dead_zone_px,
                 on_progress,
                 loop,
+                self._s.models_dir,
             )
 
             await asyncio.to_thread(mux_audio, video_only, raw, reframed)

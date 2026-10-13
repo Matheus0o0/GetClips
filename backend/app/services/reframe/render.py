@@ -83,6 +83,7 @@ def _reframe_sync(
     dead_zone_px: int,
     on_progress: ReframeProgress | None,
     loop: asyncio.AbstractEventLoop | None,
+    models_dir: Path | None = None,
 ) -> tuple[CropMode, int]:
     """Roda o loop de crop em thread — CPU-bound. Retorna (crop_mode, frames)."""
     import cv2
@@ -105,7 +106,7 @@ def _reframe_sync(
     detector: FaceDetector | None = None
     if tracking_enabled:
         try:
-            detector = FaceDetector()
+            detector = FaceDetector(models_dir=models_dir)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Detector indisponível, fallback crop central: %s", exc)
 
@@ -208,6 +209,9 @@ def _reframe_sync(
 class OpenCVReframer:
     """Implementa IReframer usando OpenCV + FFmpeg."""
 
+    def __init__(self, models_dir: Path | None = None) -> None:
+        self._models_dir = models_dir
+
     async def reframe(
         self,
         source_video: Path,
@@ -246,6 +250,7 @@ class OpenCVReframer:
                 params.dead_zone_px,
                 on_progress,
                 loop,
+                self._models_dir,
             )
 
             if on_progress:
